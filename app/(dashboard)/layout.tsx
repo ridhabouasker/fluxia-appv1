@@ -33,7 +33,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         .single()
 
       if (error || !data) {
-        setReady(true)
+        await supabase.auth.signOut()
+        router.push('/login')
         return
       }
 
