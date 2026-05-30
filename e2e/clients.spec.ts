@@ -89,9 +89,10 @@ test.describe('Nouveau client — formulaire', () => {
     expect(options.some(o => o.includes('Maroc'))).toBeTruthy()
   })
 
-  test('soumission sans nom → pas de redirection', async ({ page }) => {
-    await page.getByRole('button', { name: /Enregistrer|Créer/i }).click()
-    expect(page.url()).toContain('/clients/nouveau')
+  test('bouton Créer désactivé sans nom saisi', async ({ page }) => {
+    // Le bouton est disabled tant que name est vide — pas de soumission possible
+    const submitBtn = page.getByRole('button', { name: /Créer/i })
+    await expect(submitBtn).toBeDisabled({ timeout: 5000 })
   })
 })
 
@@ -112,7 +113,8 @@ test.describe('Fiche client', () => {
     await page.locator('tbody tr').first().waitFor({ timeout: 10000 })
     await page.locator('tbody tr').first().click()
     await page.waitForURL('**/clients/**', { timeout: 8000 })
-    await page.getByRole('button', { name: /Retour/i }).click()
+    // Le bouton Retour est icon-only (ArrowLeft SVG, pas de texte) — premier bouton du main
+    await page.locator('main button').first().click()
     await page.waitForURL('**/clients', { timeout: 8000 })
     expect(page.url()).toMatch(/\/clients$/)
   })

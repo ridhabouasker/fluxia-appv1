@@ -24,7 +24,8 @@ test.describe('Mon cabinet — cabinet connecté', () => {
 
   test('onglet Données générales — champs du cabinet visibles', async ({ page }) => {
     await page.getByRole('button', { name: 'Données générales' }).click()
-    await expect(page.locator('input').first()).toBeVisible({ timeout: 10000 })
+    // Exclure l'input file caché (logo upload) — cibler les champs texte visibles
+    await expect(page.locator('input:not([type="file"])').first()).toBeVisible({ timeout: 10000 })
   })
 
   test('onglet Données générales — sections Identité et Coordonnées', async ({ page }) => {
@@ -32,9 +33,10 @@ test.describe('Mon cabinet — cabinet connecté', () => {
     await expect(page.locator('text=/Identité|Général|Coordonnées/i').first()).toBeVisible({ timeout: 10000 })
   })
 
-  test('onglet Utilisateurs — liste des utilisateurs actifs', async ({ page }) => {
+  test('onglet Utilisateurs — table des utilisateurs visible', async ({ page }) => {
     await page.getByRole('button', { name: 'Utilisateurs' }).click()
-    await expect(page.locator('text=/Utilisateurs actifs/i')).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('table').first()).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('th', { hasText: 'Nom' }).first()).toBeVisible()
   })
 
   test('onglet Utilisateurs — formulaire invitation email', async ({ page }) => {

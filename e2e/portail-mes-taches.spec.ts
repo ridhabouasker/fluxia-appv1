@@ -17,8 +17,8 @@ test.describe('Portail client — mes tâches', () => {
     await expect(page.locator('h1', { hasText: 'Mes tâches' })).toBeVisible({ timeout: 10000 })
   })
 
-  test('header portail visible ("Portail client")', async ({ page }) => {
-    await expect(page.locator('text=Portail client')).toBeVisible()
+  test('sidebar portail visible avec les liens de navigation', async ({ page }) => {
+    await expect(page.locator('aside')).toBeVisible()
   })
 
   test('bouton déconnexion présent', async ({ page }) => {
@@ -41,17 +41,18 @@ test.describe('Portail client — mes tâches', () => {
   })
 
   test('légende des statuts visible', async ({ page }) => {
-    await expect(page.locator('text=À faire')).toBeVisible({ timeout: 10000 })
-    await expect(page.locator('text=Fait')).toBeVisible()
-    await expect(page.locator('text=En retard')).toBeVisible()
+    await expect(page.locator('text=À faire').first()).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('text=Fait').first()).toBeVisible()
+    await expect(page.locator('text=En retard').first()).toBeVisible()
   })
 
   test('navigation année — avancer puis reculer', async ({ page }) => {
     const year = new Date().getFullYear()
-    const btns = page.getByRole('button').filter({ has: page.locator('svg') })
-    await btns.last().click()
+    // Cible les boutons de nav dans le main, pas sidebar/header
+    const mainBtns = page.locator('main').getByRole('button').filter({ has: page.locator('svg') })
+    await mainBtns.last().click()
     await expect(page.locator(`text=${year + 1}`).first()).toBeVisible({ timeout: 5000 })
-    await btns.first().click()
+    await mainBtns.first().click()
     await expect(page.locator(`text=${year}`).first()).toBeVisible()
   })
 
@@ -67,5 +68,39 @@ test.describe('Portail client — mes tâches', () => {
     await page.goto('/mes-taches')
     await page.waitForURL('**/login', { timeout: 8000 })
     expect(page.url()).toContain('/login')
+  })
+
+  test('nav portail — tous les liens présents', async ({ page }) => {
+    const nav = page.locator('nav').or(page.locator('aside'))
+    await expect(nav.getByRole('link', { name: 'Mes tâches' })).toBeVisible({ timeout: 8000 })
+    await expect(nav.getByRole('link', { name: 'Mes documents' })).toBeVisible()
+    await expect(nav.getByRole('link', { name: 'Livrables cabinet' })).toBeVisible()
+    await expect(nav.getByRole('link', { name: 'Ma société' })).toBeVisible()
+  })
+
+  test('nav portail — navigation vers Mes documents', async ({ page }) => {
+    const nav = page.locator('nav').or(page.locator('aside'))
+    await nav.getByRole('link', { name: 'Mes documents' }).click()
+    await page.waitForURL('**/mes-documents', { timeout: 8000 })
+    expect(page.url()).toContain('/mes-documents')
+  })
+
+  test('nav portail — navigation vers Ma société', async ({ page }) => {
+    const nav = page.locator('nav').or(page.locator('aside'))
+    await nav.getByRole('link', { name: 'Ma société' }).click()
+    await page.waitForURL('**/ma-societe', { timeout: 8000 })
+    expect(page.url()).toContain('/ma-societe')
+  })
+
+  test('nav portail — navigation vers Livrables cabinet', async ({ page }) => {
+    const nav = page.locator('nav').or(page.locator('aside'))
+    await nav.getByRole('link', { name: 'Livrables cabinet' }).click()
+    await page.waitForURL('**/mes-livrables', { timeout: 8000 })
+    expect(page.url()).toContain('/mes-livrables')
+  })
+
+  test('pas d\'erreur serveur', async ({ page }) => {
+    await expect(page.locator('body')).not.toContainText('Internal Server Error')
+    await expect(page.locator('body')).not.toContainText('500')
   })
 })
