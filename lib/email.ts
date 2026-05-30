@@ -8,6 +8,10 @@ function serviceClient() {
   )
 }
 
+function appUrl() {
+  return process.env.APP_URL ?? 'http://localhost:3000'
+}
+
 function esc(s: string) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
@@ -18,15 +22,20 @@ type NotifyDepositParams = {
   firmId:       string
   firmName:     string
   fileNames:    string[]
-  firmUrl:      string
 }
 
 type NotifyStatusParams = {
-  customerId:  string
-  firmName:    string
-  fileName:    string
-  status:      'processed' | 'rejected'
-  clientUrl:   string
+  customerId: string
+  firmName:   string
+  fileName:   string
+  status:     'processed' | 'rejected'
+}
+
+type NotifyInvitationParams = {
+  email:        string
+  firmName:     string
+  customerName: string | null
+  token:        string
 }
 
 export async function notifyDeposit(p: NotifyDepositParams) {
@@ -34,31 +43,17 @@ export async function notifyDeposit(p: NotifyDepositParams) {
 
   const db = serviceClient()
 
-  // Users firm assignés à ce client
-  const { data: links } = await db
-    .from('user_customer')
-    .select('user:user_id(email, role)')
-    .eq('customer_id', p.customerId)
+  const { data: users } = await db
+    .from('user_data')
+    .select('email')
+    .eq('firm_id', p.firmId)
+    .eq('role', 'firm')
 
-  let emails = (links ?? [])
-    .map(l => (l.user as unknown as { email: string; role: string } | null))
-    .filter(u => u?.role === 'firm')
-    .map(u => u!.email)
-
-  // Fallback : tous les users firm du cabinet
-  if (emails.length === 0) {
-    const { data: users } = await db
-      .from('user_data')
-      .select('email')
-      .eq('firm_id', p.firmId)
-      .eq('role', 'firm')
-    for (const u of users ?? []) if (u.email) emails.push(u.email)
-  }
-
+  const emails = (users ?? []).map(u => u.email).filter(Boolean) as string[]
   if (emails.length === 0) return
 
-  const n       = p.fileNames.length
-  const plural  = n > 1
+  const n        = p.fileNames.length
+  const plural   = n > 1
   const listHtml = p.fileNames.map(f => `<li style="margin-bottom:4px;">${esc(f)}</li>`).join('')
 
   const resend = new Resend(process.env.RESEND_API_KEY)
@@ -80,7 +75,7 @@ export async function notifyDeposit(p: NotifyDepositParams) {
         <ul style="padding:0 0 0 20px;margin:0 0 24px;font-size:13px;color:#0F172A;">
           ${listHtml}
         </ul>
-        <a href="${p.firmUrl}/documents" style="display:inline-block;padding:10px 24px;background:#1D4ED8;color:#fff;font-size:13px;font-weight:500;border-radius:6px;text-decoration:none;">
+        <a href="${appUrl()}/documents" style="display:inline-block;padding:10px 24px;background:#1D4ED8;color:#fff;font-size:13px;font-weight:500;border-radius:6px;text-decoration:none;">
           Voir les documents
         </a>
         <p style="font-size:12px;color:#94A3B8;margin-top:24px;">
@@ -105,16 +100,17 @@ export async function notifyStatus(p: NotifyStatusParams) {
     .map(l => (l.user as unknown as { email: string; role: string } | null))
     .filter(u => u?.role === 'customer')
     .map(u => u!.email)
+    .filter(Boolean) as string[]
 
   if (emails.length === 0) return
 
-  const rejected  = p.status === 'rejected'
-  const headline  = rejected ? 'Document rejeté' : 'Document traité'
-  const message   = rejected
+  const rejected = p.status === 'rejected'
+  const headline = rejected ? 'Document rejeté' : 'Document traité'
+  const message  = rejected
     ? `<strong>${esc(p.firmName)}</strong> a rejeté le document suivant. Veuillez en déposer une nouvelle version.`
     : `<strong>${esc(p.firmName)}</strong> a traité le document suivant.`
-  const ctaColor  = rejected ? '#DC2626' : '#059669'
-  const cta       = rejected ? 'Déposer un nouveau document' : 'Voir mes documents'
+  const ctaColor = rejected ? '#DC2626' : '#059669'
+  const cta      = rejected ? 'Déposer un nouveau document' : 'Voir mes documents'
 
   const resend = new Resend(process.env.RESEND_API_KEY)
   await resend.emails.send({
@@ -133,11 +129,42 @@ export async function notifyStatus(p: NotifyStatusParams) {
         <p style="font-size:13px;color:#0F172A;background:#F8FAFC;padding:10px 14px;border-radius:6px;margin:0 0 24px;font-family:monospace;">
           ${esc(p.fileName)}
         </p>
-        <a href="${p.clientUrl}/mes-documents" style="display:inline-block;padding:10px 24px;background:${ctaColor};color:#fff;font-size:13px;font-weight:500;border-radius:6px;text-decoration:none;">
+        <a href="${appUrl()}/mes-documents" style="display:inline-block;padding:10px 24px;background:${ctaColor};color:#fff;font-size:13px;font-weight:500;border-radius:6px;text-decoration:none;">
           ${cta}
         </a>
         <p style="font-size:12px;color:#94A3B8;margin-top:24px;">
           Vous recevez cet email car vous disposez d&apos;un espace documentaire Fluxia.
+        </p>
+      </div>
+    `,
+  })
+}
+
+export async function notifyInvitation(p: NotifyInvitationParams) {
+  if (!process.env.RESEND_API_KEY) return
+
+  const inviteUrl  = `${appUrl()}/invite/${p.token}`
+  const contextLine = p.customerName
+    ? `Vous avez été invité à accéder au portail client de <strong>${esc(p.customerName)}</strong> géré par <strong>${esc(p.firmName)}</strong>.`
+    : `Vous avez été invité à accéder à l&apos;espace documentaire de <strong>${esc(p.firmName)}</strong>.`
+
+  const resend = new Resend(process.env.RESEND_API_KEY)
+  await resend.emails.send({
+    from:    'Fluxia <noreply@advences.com>',
+    to:      p.email,
+    subject: `${esc(p.firmName)} vous invite sur Fluxia`,
+    html: `
+      <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto;padding:32px;background:#fff;">
+        <div style="margin-bottom:24px;">
+          <span style="font-size:16px;font-weight:700;color:#0F172A;">Fluxia</span>
+        </div>
+        <h1 style="font-size:20px;font-weight:600;color:#0F172A;margin:0 0 8px;">Vous avez une invitation</h1>
+        <p style="font-size:14px;color:#64748B;margin:0 0 24px;">${contextLine}</p>
+        <a href="${inviteUrl}" style="display:inline-block;padding:10px 24px;background:#1D4ED8;color:#fff;font-size:13px;font-weight:500;border-radius:6px;text-decoration:none;">
+          Créer mon accès
+        </a>
+        <p style="font-size:12px;color:#94A3B8;margin-top:24px;">
+          Ce lien est valable 7 jours. Si vous n&apos;attendiez pas cette invitation, ignorez cet email.
         </p>
       </div>
     `,

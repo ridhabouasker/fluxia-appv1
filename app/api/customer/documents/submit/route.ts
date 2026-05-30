@@ -182,7 +182,6 @@ export async function POST(req: Request) {
       firmId:       firm.id,
       firmName:     firm.name,
       fileNames:    files.map(f => f.name),
-      firmUrl:      process.env.NEXT_PUBLIC_FIRM_URL ?? 'http://localhost:3000',
     })
   } catch (err) {
     console.error('notifyDeposit:', err)

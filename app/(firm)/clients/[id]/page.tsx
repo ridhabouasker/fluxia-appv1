@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { Building2, User, ArrowLeft } from 'lucide-react'
+import { Building2, User, ArrowLeft, Copy, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
 import { SECTORS } from '@/lib/sectors'
 
@@ -26,7 +26,7 @@ type CustomerUser = {
 }
 
 type InviteRow = {
-  id: string; email: string; status: string; expires_at: string
+  id: string; email: string; status: string; expires_at: string; token: string
 }
 
 type Tab = 'informations' | 'utilisateurs'
@@ -94,6 +94,7 @@ export default function ClientDetailPage() {
   const [inviteSent, setInviteSent]     = useState(false)
   const [inviteError, setInviteError]   = useState('')
   const [cancelling, setCancelling]     = useState<string | null>(null)
+  const [copiedId, setCopiedId]         = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -115,7 +116,7 @@ export default function ClientDetailPage() {
           .eq('customer_id', id),
         supabase
           .from('user_invitation')
-          .select('id, email, status, expires_at')
+          .select('id, email, status, expires_at, token')
           .eq('customer_id', id)
           .eq('status', 'pending')
           .gt('expires_at', new Date().toISOString()),
@@ -204,7 +205,7 @@ export default function ClientDetailPage() {
         status:     'pending',
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       })
-      .select('id, email, status, expires_at')
+      .select('id, email, status, expires_at, token')
       .single()
 
     if (error) {
@@ -213,6 +214,15 @@ export default function ClientDetailPage() {
       setInvites(prev => [data as InviteRow, ...prev])
       setInviteSent(true)
       setInviteEmail('')
+      // Envoyer l'email d'invitation en best-effort
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.access_token) {
+        fetch('/api/invite/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+          body: JSON.stringify({ invitationId: data.id }),
+        }).catch(() => {})
+      }
     }
     setInviting(false)
   }
@@ -413,17 +423,35 @@ export default function ClientDetailPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
-                      {['Email', 'Expire le', ''].map(h => (
+                      {['Email', 'Expire le', 'Lien', ''].map(h => (
                         <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {invites.map((inv, i) => (
+                    {invites.map((inv, i) => {
+                      const link = `${window.location.origin}/invite/${inv.token}`
+                      const copied = copiedId === inv.id
+                      return (
                       <tr key={inv.id} className={i < invites.length - 1 ? 'border-b border-[#E2E8F0]' : ''}>
                         <td className="px-4 py-3 text-sm text-[#0F172A]">{inv.email}</td>
                         <td className="px-4 py-3 text-xs text-[#94A3B8]">
                           {new Date(inv.expires_at).toLocaleDateString('fr-FR')}
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(link)
+                              setCopiedId(inv.id)
+                              setTimeout(() => setCopiedId(null), 2000)
+                            }}
+                            className="flex items-center gap-1.5 text-xs text-[#1D4ED8] hover:underline"
+                          >
+                            {copied
+                              ? <><Check size={12} className="text-[#059669]" /><span className="text-[#059669]">Copié</span></>
+                              : <><Copy size={12} /><span>Copier le lien</span></>
+                            }
+                          </button>
                         </td>
                         <td className="px-4 py-3 text-right">
                           <button onClick={() => handleCancelInvite(inv.id)} disabled={cancelling === inv.id}
@@ -432,7 +460,8 @@ export default function ClientDetailPage() {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

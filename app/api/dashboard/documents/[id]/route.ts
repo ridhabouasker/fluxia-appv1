@@ -66,7 +66,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         firmName:   firm?.name ?? '',
         fileName:   doc.filename ?? 'Document',
         status:     status as 'processed' | 'rejected',
-        clientUrl:  process.env.NEXT_PUBLIC_CLIENT_URL ?? 'http://localhost:3001',
       })
     } catch (err) {
       console.error('notifyStatus:', err)
