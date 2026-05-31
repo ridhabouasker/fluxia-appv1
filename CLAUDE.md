@@ -35,8 +35,8 @@ components/
   firm/             → composants spécifiques cabinet
   customer/         → composants spécifiques client
   shared/           → composants partagés (DocumentCard, filtres…)
-  Header.tsx        → à migrer dans shared/
-  Sidebar.tsx       → à migrer dans firm/
+  shared/Header.tsx → header partagé firm+customer
+  firm/Sidebar.tsx  → sidebar cabinet
 lib/
   supabaseClient.ts
   utils.ts
@@ -67,6 +67,7 @@ lib/
 - Sans policy, PostgREST retourne `[]` (pas d'erreur) même si les données existent — identique à une table vide
 - En cas de 406 ou `[]` inexpliqué : vérifier les policies RLS en premier, avant tout autre diagnostic
 - Vérifier les policies avec curl + token JWT valide, pas juste via le dashboard Supabase
+- **Toujours utiliser `my_firm_id()` dans les policies**, jamais un subquery direct sur `user_data`. Le subquery plain est soumis à la RLS de `user_data` et peut retourner `NULL` silencieusement. `my_firm_id()` est `SECURITY DEFINER` et contourne ce risque.
 
 ## Nomenclature — URLs
 - URLs en anglais partout : `/login`, `/register`, `/dashboard`, `/clients`, `/taches`, etc.

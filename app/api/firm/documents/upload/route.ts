@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseService'
+import { validateMagicBytes } from '@/lib/file-validation'
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -60,14 +61,20 @@ export async function POST(req: Request) {
   if (!isAllowedExt(file))      return NextResponse.json({ error: `Format non supporté : ${file.name}` }, { status: 400 })
   if (file.size > MAX_FILE_SIZE) return NextResponse.json({ error: 'Fichier trop volumineux (max 20 Mo)' }, { status: 400 })
   if (file.size === 0)           return NextResponse.json({ error: 'Fichier vide' }, { status: 400 })
+  if (!await validateMagicBytes(file)) return NextResponse.json({ error: `Fichier corrompu ou type invalide : ${file.name}` }, { status: 400 })
 
   const { data: customer } = await service
     .from('customer').select('id, firm_id').eq('id', customerId).eq('firm_id', ud.firm_id).single()
   if (!customer) return NextResponse.json({ error: 'Client introuvable' }, { status: 404 })
 
   const { data: firm } = await service
-    .from('firm').select('id').eq('id', ud.firm_id).single()
+    .from('firm').select('id, storage_quota_mb, storage_used_kb').eq('id', ud.firm_id).single()
   if (!firm) return NextResponse.json({ error: 'Cabinet introuvable' }, { status: 500 })
+
+  const fileSizeKb = Math.round(file.size / 1024)
+  if (firm.storage_used_kb + fileSizeKb > firm.storage_quota_mb * 1024) {
+    return NextResponse.json({ error: 'Quota de stockage dépassé. Contactez votre cabinet.' }, { status: 413 })
+  }
 
   const safeName   = file.name.replace(/[^a-zA-Z0-9._\-]/g, '_').slice(0, 180)
   const uid        = crypto.randomUUID().slice(0, 8)
@@ -111,6 +118,8 @@ export async function POST(req: Request) {
     user_id:     user.id,
     event_type:  'uploaded',
   })
+
+  await service.from('firm').update({ storage_used_kb: firm.storage_used_kb + fileSizeKb }).eq('id', firm.id)
 
   return NextResponse.json({ ok: true, id: doc.id }, { status: 201 })
 }

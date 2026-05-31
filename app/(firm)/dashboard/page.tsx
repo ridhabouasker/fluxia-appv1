@@ -4,26 +4,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, Clock, FileCheck, Users } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
-
-const MONTHS_FR = ['','Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc']
-
-function formatPeriod(year: number, months: number[] | null): string {
-  if (!months || months.length === 0) return String(year)
-  if (months.length === 1) return `${MONTHS_FR[months[0]]} ${year}`
-  return `${MONTHS_FR[months[0]]}–${MONTHS_FR[months[months.length - 1]]} ${year}`
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const m = Math.floor(diff / 60000)
-  if (m < 1)  return "à l'instant"
-  if (m < 60) return `il y a ${m} min`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `il y a ${h}h`
-  const d = Math.floor(h / 24)
-  if (d < 7)  return `il y a ${d}j`
-  return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
-}
+import { formatPeriod, timeAgo, MONTHS_FR } from '@/lib/format'
+import type { RawDepositRow, RawLateTaskRow } from '@/lib/db-types'
 
 type KPIs = {
   pending:       number
@@ -113,21 +95,23 @@ export default function DashboardPage() {
         lateTasks:      lateCnt ?? 0,
       })
 
-      setDeposits((rawDeposits ?? []).map(d => ({
+      const typedDeposits = (rawDeposits ?? []) as unknown as RawDepositRow[]
+      setDeposits(typedDeposits.map(d => ({
         id:            d.id,
         created_at:    d.created_at,
         filename:      d.filename,
         year:          d.year,
         months:        d.months,
-        customer_name: (d.customer as unknown as { name: string } | null)?.name ?? '—',
-        type_name:     (d.type as unknown as { name: string } | null)?.name ?? null,
+        customer_name: d.customer?.name ?? '—',
+        type_name:     d.type?.name ?? null,
       })))
 
-      setLateTasks((rawLate ?? []).map(r => ({
+      const typedLate = (rawLate ?? []) as unknown as RawLateTaskRow[]
+      setLateTasks(typedLate.map(r => ({
         month:         r.month,
         year:          r.year,
-        task_name:     (r.task as unknown as { name: string } | null)?.name ?? '—',
-        customer_name: (r.customer as unknown as { name: string } | null)?.name ?? '—',
+        task_name:     r.task?.name ?? '—',
+        customer_name: r.customer?.name ?? '—',
       })))
 
       setLoading(false)

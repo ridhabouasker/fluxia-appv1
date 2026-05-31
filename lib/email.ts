@@ -140,6 +140,86 @@ export async function notifyStatus(p: NotifyStatusParams) {
   })
 }
 
+type NotifyMessageParams = {
+  firmId:       string
+  customerId:   string
+  senderRole:   'firm' | 'customer'
+  senderName:   string
+  documentName: string | null
+  messageBody:  string
+}
+
+export async function notifyMessage(p: NotifyMessageParams) {
+  if (!process.env.RESEND_API_KEY) return
+
+  const db = serviceClient()
+
+  let emails: string[] = []
+
+  if (p.senderRole === 'customer') {
+    // Notifier les collaborateurs cab assignés à ce dossier + les admins
+    const [{ data: assignedLinks }, { data: admins }] = await Promise.all([
+      db.from('user_customer')
+        .select('user:user_id(email, role)')
+        .eq('customer_id', p.customerId),
+      db.from('user_data')
+        .select('email')
+        .eq('firm_id', p.firmId)
+        .eq('role', 'firm')
+        .eq('admin', true),
+    ])
+    const assignedEmails = (assignedLinks ?? [])
+      .map(l => (l.user as unknown as { email: string; role: string } | null))
+      .filter(u => u?.role === 'firm')
+      .map(u => u!.email)
+    const adminEmails = (admins ?? []).map(u => u.email)
+    emails = [...new Set([...assignedEmails, ...adminEmails])].filter(Boolean) as string[]
+  } else {
+    // Notifier les users client liés au customer
+    const { data: links } = await db
+      .from('user_customer')
+      .select('user:user_id(email, role)')
+      .eq('customer_id', p.customerId)
+    emails = (links ?? [])
+      .map(l => (l.user as unknown as { email: string; role: string } | null))
+      .filter(u => u?.role === 'customer')
+      .map(u => u!.email)
+      .filter(Boolean) as string[]
+  }
+
+  if (emails.length === 0) return
+
+  const docLabel = p.documentName ? `<strong>${esc(p.documentName)}</strong>` : 'un document'
+  const ctaUrl   = p.senderRole === 'customer' ? `${appUrl()}/documents` : `${appUrl()}/mes-documents`
+
+  const resend = new Resend(process.env.RESEND_API_KEY)
+  await resend.emails.send({
+    from:    'Fluxia <noreply@advences.com>',
+    to:      emails,
+    subject: `Nouveau message de ${esc(p.senderName)} sur Fluxia`,
+    html: `
+      <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto;padding:32px;background:#fff;">
+        <div style="margin-bottom:24px;">
+          <span style="font-size:16px;font-weight:700;color:#0F172A;">Fluxia</span>
+        </div>
+        <h1 style="font-size:20px;font-weight:600;color:#0F172A;margin:0 0 8px;">Nouveau message</h1>
+        <p style="font-size:14px;color:#64748B;margin:0 0 16px;">
+          <strong>${esc(p.senderName)}</strong> vous a envoyé un message concernant ${docLabel} :
+        </p>
+        <div style="background:#F8FAFC;border-left:3px solid #1D4ED8;padding:12px 16px;border-radius:0 6px 6px 0;font-size:13px;color:#0F172A;margin:0 0 24px;">
+          ${esc(p.messageBody.slice(0, 300))}${p.messageBody.length > 300 ? '…' : ''}
+        </div>
+        <a href="${ctaUrl}" style="display:inline-block;padding:10px 24px;background:#1D4ED8;color:#fff;font-size:13px;font-weight:500;border-radius:6px;text-decoration:none;">
+          Voir et répondre
+        </a>
+        <p style="font-size:12px;color:#94A3B8;margin-top:24px;">
+          Vous recevez cet email car vous êtes lié à cet espace documentaire sur Fluxia.
+        </p>
+      </div>
+    `,
+  })
+}
+
 export async function notifyInvitation(p: NotifyInvitationParams) {
   if (!process.env.RESEND_API_KEY) return
 

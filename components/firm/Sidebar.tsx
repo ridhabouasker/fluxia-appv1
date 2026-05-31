@@ -10,6 +10,7 @@ import {
   Users,
   Building2,
   LogOut,
+  UserCircle,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -39,6 +40,7 @@ const NAV = [
     items: [
       { label: 'Clients', href: '/clients', icon: Users },
       { label: 'Mon cabinet', href: '/mon-cabinet', icon: Building2 },
+      { label: 'Mon profil', href: '/mon-profil', icon: UserCircle },
     ],
   },
 ]
@@ -48,9 +50,11 @@ type Props = {
   countryCode: string
   userName: string
   logoUrl?: string | null
+  avatarUrl?: string | null
+  userInitials?: string
 }
 
-export default function Sidebar({ firmName, countryCode, userName, logoUrl }: Props) {
+export default function Sidebar({ firmName, countryCode, userName, logoUrl, avatarUrl, userInitials }: Props) {
   const pathname = usePathname()
   const router = useRouter()
 
@@ -108,9 +112,14 @@ export default function Sidebar({ firmName, countryCode, userName, logoUrl }: Pr
       <div className="px-3 py-3 border-t border-[#E2E8F0]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-full bg-[#1D4ED8] flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
-              {userName.charAt(0).toUpperCase()}
-            </div>
+            {avatarUrl ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={avatarUrl} alt={userName} className="w-7 h-7 rounded-full object-cover flex-shrink-0 border border-[#E2E8F0]" />
+            ) : (
+              <div className="w-7 h-7 rounded-full bg-[#1D4ED8] flex items-center justify-center text-white text-xs font-medium flex-shrink-0">
+                {userInitials ?? userName.charAt(0).toUpperCase()}
+              </div>
+            )}
             <span className="text-xs text-[#64748B] truncate">{userName}</span>
           </div>
           <button

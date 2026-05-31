@@ -3,15 +3,16 @@
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { CheckSquare, Upload, FolderOutput, Building2, LogOut } from 'lucide-react'
+import { CheckSquare, Upload, FolderOutput, Building2, LogOut, UserCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
-import Header from '@/components/Header'
+import Header from '@/components/shared/Header'
 
 const NAV = [
   { label: 'Mes tâches',        href: '/mes-taches',   icon: CheckSquare },
   { label: 'Mes documents',     href: '/mes-documents', icon: Upload },
   { label: 'Livrables cabinet', href: '/mes-livrables', icon: FolderOutput },
   { label: 'Ma société',        href: '/ma-societe',    icon: Building2 },
+  { label: 'Mon profil',        href: '/mon-compte',    icon: UserCircle },
 ]
 
 const FLAGS: Record<string, string> = { FR: '🇫🇷', TN: '🇹🇳', MA: '🇲🇦' }
@@ -40,11 +41,17 @@ export default function PortailLayout({ children }: { children: React.ReactNode 
 
       const { data: ud } = await supabase
         .from('user_data')
-        .select('role, first_name, last_name, firm_id')
+        .select('role, first_name, last_name, firm_id, active')
         .eq('id', session.user.id)
         .single()
       if (!active) return
       if (!ud || ud.role !== 'customer') { router.push('/dashboard'); return }
+
+      if ((ud as { active?: boolean }).active === false) {
+        await supabase.auth.signOut()
+        router.push('/login?suspended=1')
+        return
+      }
 
       const fullName = `${ud.first_name} ${ud.last_name}`.trim()
       const initials = ((ud.first_name?.[0] ?? '') + (ud.last_name?.[0] ?? '')).toUpperCase() || '?'

@@ -118,3 +118,91 @@ test.describe('Dépôt document client — wizard étape 1', () => {
     await expect(fileInput).toBeAttached({ timeout: 10000 })
   })
 })
+
+// ─── Tests API — MIME validation & quota (via session client) ─────────────────
+
+test.describe('Dépôt document client — validation API', () => {
+  test.use({ storageState: CLIENT_AUTH_FILE })
+
+  async function getToken(page: import('@playwright/test').Page): Promise<string | null> {
+    await page.goto('/mes-documents')
+    await expect(page.locator('h1', { hasText: 'Mes documents' })).toBeVisible({ timeout: 12000 })
+    return page.evaluate(() => {
+      const key = Object.keys(localStorage).find(k => k.includes('auth-token'))
+      if (!key) return null
+      try { return JSON.parse(localStorage.getItem(key) ?? '').access_token }
+      catch { return null }
+    })
+  }
+
+  test('fichier avec mauvais magic bytes (fake .pdf) → 400', async ({ page, request }) => {
+    const token = await getToken(page)
+    if (!token) { test.skip(); return }
+
+    const res = await request.post('/api/customer/documents/submit', {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {
+        customerId: '00000000-0000-0000-0000-000000000000',
+        meta: JSON.stringify([{ type: 'Autre', year: '2026', month: '', note: '', originalName: 'fake.pdf' }]),
+        files: {
+          name: 'fake.pdf',
+          mimeType: 'application/pdf',
+          buffer: Buffer.from('This is plain text, definitely not a PDF'),
+        },
+      },
+    })
+
+    expect(res.status()).toBe(400)
+    const body = await res.json()
+    expect(body.error).toMatch(/corrompu|type invalide/)
+  })
+
+  test('extension non autorisée (.exe) → 400', async ({ page, request }) => {
+    const token = await getToken(page)
+    if (!token) { test.skip(); return }
+
+    const res = await request.post('/api/customer/documents/submit', {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {
+        customerId: '00000000-0000-0000-0000-000000000000',
+        meta: JSON.stringify([{ type: 'Autre', year: '2026', month: '', note: '', originalName: 'virus.exe' }]),
+        files: {
+          name: 'virus.exe',
+          mimeType: 'application/octet-stream',
+          buffer: Buffer.from('MZ\x90\x00'), // EXE magic bytes
+        },
+      },
+    })
+
+    expect(res.status()).toBe(400)
+    const body = await res.json()
+    expect(body.error).toMatch(/supporté/)
+  })
+
+  test('fichier vide → 400', async ({ page, request }) => {
+    const token = await getToken(page)
+    if (!token) { test.skip(); return }
+
+    const res = await request.post('/api/customer/documents/submit', {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {
+        customerId: '00000000-0000-0000-0000-000000000000',
+        meta: JSON.stringify([{ type: 'Autre', year: '2026', month: '', note: '', originalName: 'empty.pdf' }]),
+        files: {
+          name: 'empty.pdf',
+          mimeType: 'application/pdf',
+          buffer: Buffer.from(''),
+        },
+      },
+    })
+
+    expect(res.status()).toBe(400)
+    const body = await res.json()
+    expect(body.error).toMatch(/vide/)
+  })
+
+  test('requête sans token → 401', async ({ request }) => {
+    const res = await request.post('/api/customer/documents/submit')
+    expect(res.status()).toBe(401)
+  })
+})

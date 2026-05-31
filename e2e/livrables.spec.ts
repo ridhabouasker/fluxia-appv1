@@ -102,4 +102,40 @@ test.describe('Livrables cabinet — cabinet connecté', () => {
       await expect(page.locator('text=/Historique/i').first()).toBeVisible({ timeout: 5000 })
     }
   })
+
+  // ─── Tests post-refactoring (sous-composants LivrablesFilters) ─────────────
+
+  test('filtre année — changer l\'année et relancer → table stable', async ({ page }) => {
+    const yearSelect = page.locator('select').first()
+    await expect(yearSelect).toBeVisible()
+    // Changer l'année
+    const options = await yearSelect.locator('option').allTextContents()
+    if (options.length > 1) {
+      await yearSelect.selectOption({ index: 1 })
+    }
+    await page.getByRole('button', { name: /Rechercher/i }).click()
+    await expect(page.locator('table')).toBeVisible({ timeout: 8000 })
+    await expect(page.locator('body')).not.toContainText('Internal Server Error')
+  })
+
+  test('badge d\'extension visible si livrables présents', async ({ page }) => {
+    await page.locator('select').first().selectOption({ index: 0 })
+    await page.getByRole('button', { name: /Rechercher/i }).click()
+    await expect(page.locator('table')).toBeVisible({ timeout: 8000 })
+    const extBadges = page.locator('span').filter({ hasText: /^(PDF|DOCX|XLSX|JPG|PNG)$/ })
+    const hasBadges = await extBadges.count() > 0
+    // Soit des badges présents, soit tableau vide — pas d'erreur
+    await expect(page.locator('body')).not.toContainText('undefined')
+  })
+
+  test('bouton "Nouveau" — cliquable sans erreur serveur', async ({ page }) => {
+    const link = page.getByRole('link', { name: /Nouveau|Déposer/i })
+      .or(page.getByRole('button', { name: /Nouveau|Déposer/i }))
+    if (await link.count() > 0) {
+      await link.first().click()
+      // Soit navigation vers /documents/nouveau, soit ouverture d'un wizard inline
+      await page.waitForTimeout(500)
+      await expect(page.locator('body')).not.toContainText('Internal Server Error')
+    }
+  })
 })

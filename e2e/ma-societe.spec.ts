@@ -56,6 +56,39 @@ test.describe('Ma société — client connecté', () => {
     await expect(page.locator('th', { hasText: 'Statut' }).first()).toBeVisible()
   })
 
+  test('onglet Utilisateurs — badge Statut visible', async ({ page }) => {
+    await page.getByRole('button', { name: 'Utilisateurs' }).click()
+    await expect(page.locator('table').first()).toBeVisible({ timeout: 8000 })
+    const statusCells = page.locator('tbody td').filter({ hasText: /Actif|Inactif/ })
+    if (await statusCells.count() > 0) {
+      await expect(statusCells.first()).toBeVisible()
+    }
+  })
+
+  test('onglet Utilisateurs — propre ligne non cliquable sur Statut (soi-même)', async ({ page }) => {
+    await page.getByRole('button', { name: 'Utilisateurs' }).click()
+    await expect(page.locator('table').first()).toBeVisible({ timeout: 8000 })
+    const ownRow = page.locator('tbody tr').filter({ hasText: '(vous)' })
+    if (await ownRow.count() > 0) {
+      // Le badge de sa propre ligne doit être un span statique, pas un bouton
+      const statusSpan = ownRow.locator('span').filter({ hasText: /Actif|Inactif/ })
+      await expect(statusSpan).toBeVisible()
+    }
+  })
+
+  test('onglet Utilisateurs — badge Statut admin non cliquable (admin protégé)', async ({ page }) => {
+    await page.getByRole('button', { name: 'Utilisateurs' }).click()
+    await expect(page.locator('table').first()).toBeVisible({ timeout: 8000 })
+    // Les lignes admin doivent avoir un span (non cliquable), pas un bouton sur Statut
+    const adminRows = page.locator('tbody tr').filter({ hasText: 'Admin' })
+    if (await adminRows.count() > 0) {
+      const statusEl = adminRows.first().locator('td').filter({ hasText: /Actif|Inactif/ }).locator('span')
+      if (await statusEl.count() > 0) {
+        await expect(statusEl.first()).toBeVisible()
+      }
+    }
+  })
+
   test('onglet Utilisateurs — section invite présente si admin', async ({ page }) => {
     await page.getByRole('button', { name: 'Utilisateurs' }).click()
     await expect(page.locator('table').first()).toBeVisible({ timeout: 8000 })

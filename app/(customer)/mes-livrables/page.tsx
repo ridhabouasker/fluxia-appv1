@@ -4,14 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Download, Eye, Search, X } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
-
-const MONTHS_FR = ['','Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc']
-
-function formatPeriod(year: number, months: number[] | null): string {
-  if (!months || months.length === 0) return String(year)
-  if (months.length === 1) return `${MONTHS_FR[months[0]]} ${year}`
-  return `${MONTHS_FR[months[0]]}–${MONTHS_FR[months[months.length - 1]]} ${year}`
-}
+import { formatPeriod, EXT_COLORS } from '@/lib/format'
 
 function SizeCell({ kb }: { kb: number | null }) {
   if (!kb) return <span className="text-xs text-[#94A3B8]">—</span>
@@ -19,20 +12,6 @@ function SizeCell({ kb }: { kb: number | null }) {
   if (kb > 10 * 1024) return <span style={{ fontSize: '11px', fontWeight: 600, color: '#DC2626' }}>{label}</span>
   if (kb > 5 * 1024)  return <span style={{ fontSize: '11px', fontWeight: 600, color: '#D97706' }}>{label}</span>
   return <span className="text-xs text-[#94A3B8]">{label}</span>
-}
-
-const EXT_COLORS: Record<string, { bg: string; text: string }> = {
-  PDF:  { bg: '#FEF2F2', text: '#991B1B' },
-  CSV:  { bg: '#F0FDF4', text: '#166534' },
-  XLSX: { bg: '#F0FDF4', text: '#166534' },
-  XLS:  { bg: '#F0FDF4', text: '#166534' },
-  DOCX: { bg: '#EFF6FF', text: '#1D4ED8' },
-  DOC:  { bg: '#EFF6FF', text: '#1D4ED8' },
-  JPG:  { bg: '#F5F3FF', text: '#5B21B6' },
-  JPEG: { bg: '#F5F3FF', text: '#5B21B6' },
-  PNG:  { bg: '#F5F3FF', text: '#5B21B6' },
-  WEBP: { bg: '#F5F3FF', text: '#5B21B6' },
-  GIF:  { bg: '#F5F3FF', text: '#5B21B6' },
 }
 
 function ExtBadge({ filename }: { filename: string | null }) {

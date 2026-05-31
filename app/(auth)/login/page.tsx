@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 
@@ -10,10 +10,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [suspended, setSuspended] = useState(false)
+
+  useEffect(() => {
+    setSuspended(new URLSearchParams(window.location.search).get('suspended') === '1')
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setSuspended(false)
     setLoading(true)
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
@@ -26,11 +32,18 @@ export default function LoginPage() {
 
     const { data: userData } = await supabase
       .from('user_data')
-      .select('role')
+      .select('role, active')
       .eq('id', data.user.id)
       .single()
 
-    if (userData?.role === 'customer') {
+    if (!userData?.active) {
+      await supabase.auth.signOut()
+      setSuspended(true)
+      setLoading(false)
+      return
+    }
+
+    if (userData.role === 'customer') {
       router.push('/mes-taches')
     } else {
       router.push('/dashboard')
@@ -78,6 +91,12 @@ export default function LoginPage() {
             />
           </div>
 
+          {suspended && (
+            <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-lg px-3 py-2.5">
+              <p className="text-sm text-[#DC2626] font-medium">Compte suspendu</p>
+              <p className="text-xs text-[#DC2626] mt-0.5">Contactez votre cabinet pour réactiver votre accès.</p>
+            </div>
+          )}
           {error && (
             <p className="text-sm text-[#DC2626]">{error}</p>
           )}

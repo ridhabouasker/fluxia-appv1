@@ -34,6 +34,7 @@ export default function ClientsPage() {
         .select('id, name, country_code, legal_entity, tax_ref_main, active')
         .eq('firm_id', ud.firm_id)
         .order('name', { ascending: true })
+        .limit(500)
 
       if (data) setRows(data as CustomerRow[])
       setLoading(false)

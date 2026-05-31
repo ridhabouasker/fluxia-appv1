@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Download, Eye, LayoutGrid, List, Pencil, Search, Trash2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, Eye, LayoutGrid, List, Mail, MoreHorizontal, Pencil, Search, Trash2, X } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
+import MessagesDrawer from '@/components/shared/MessagesDrawer'
+import { formatPeriod, formatExt, EXT_COLORS, MONTHS_FR } from '@/lib/format'
 
 const STATUS_CFG = {
   draft:     { label: 'Non qualifié', bg: '#f3f4f6', text: '#6b7280',  border: '#e5e7eb' },
@@ -14,39 +16,12 @@ const STATUS_CFG = {
 type Status = keyof typeof STATUS_CFG
 type StatusFilter = Status | 'all' | 'unprocessed'
 
-const MONTHS_FR = ['','Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc']
-
-function formatPeriod(year: number, months: number[] | null): string {
-  if (!months || months.length === 0) return String(year)
-  if (months.length === 1) return `${MONTHS_FR[months[0]]} ${year}`
-  return `${MONTHS_FR[months[0]]}–${MONTHS_FR[months[months.length - 1]]} ${year}`
-}
-
 function SizeCell({ kb }: { kb: number | null }) {
   if (!kb) return <span className="text-xs text-[#94A3B8]">—</span>
   const label = kb < 1024 ? `${kb} Ko` : `${(kb / 1024).toFixed(1)} Mo`
   if (kb > 10 * 1024) return <span style={{ fontSize: '11px', fontWeight: 600, color: '#DC2626' }}>{label}</span>
   if (kb > 5 * 1024)  return <span style={{ fontSize: '11px', fontWeight: 600, color: '#D97706' }}>{label}</span>
   return <span className="text-xs text-[#94A3B8]">{label}</span>
-}
-
-function formatExt(filename: string | null): string {
-  if (!filename) return ''
-  return (filename.split('.').pop() ?? '').toUpperCase()
-}
-
-const EXT_COLORS: Record<string, { bg: string; text: string }> = {
-  PDF:  { bg: '#FEF2F2', text: '#991B1B' },
-  CSV:  { bg: '#F0FDF4', text: '#166534' },
-  XLSX: { bg: '#F0FDF4', text: '#166534' },
-  XLS:  { bg: '#F0FDF4', text: '#166534' },
-  DOCX: { bg: '#EFF6FF', text: '#1D4ED8' },
-  DOC:  { bg: '#EFF6FF', text: '#1D4ED8' },
-  JPG:  { bg: '#F5F3FF', text: '#5B21B6' },
-  JPEG: { bg: '#F5F3FF', text: '#5B21B6' },
-  PNG:  { bg: '#F5F3FF', text: '#5B21B6' },
-  WEBP: { bg: '#F5F3FF', text: '#5B21B6' },
-  GIF:  { bg: '#F5F3FF', text: '#5B21B6' },
 }
 
 function ExtBadge({ filename }: { filename: string | null }) {
@@ -74,11 +49,92 @@ type DocTypeOpt = { id: string; name: string }
 
 const SEL = "text-sm border border-[#E2E8F0] rounded-lg px-3 py-1.5 bg-white text-[#0F172A] focus:outline-none focus:ring-1 focus:ring-[#1D4ED8]"
 
+function DocActionMenu({ doc, busy, onView, onDownload, onMessages, onDelete }: {
+  doc: DocRow
+  busy: boolean
+  onView: () => void
+  onDownload: () => void
+  onMessages: () => void
+  onDelete?: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [pos,  setPos]  = useState<{ top: number; right: number } | null>(null)
+  const btnRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function close(e: MouseEvent) {
+      const target = e.target as Node
+      const menu = document.getElementById('doc-action-menu')
+      if (menu && !menu.contains(target) && !btnRef.current?.contains(target)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  function handleOpen() {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + 4, right: window.innerWidth - r.right })
+    }
+    setOpen(o => !o)
+  }
+
+  function run(fn: () => void) { setOpen(false); fn() }
+
+  return (
+    <div ref={btnRef} style={{ display: 'inline-flex' }}>
+      <ActionBtn title="Actions" color="#64748B" loading={busy} onClick={handleOpen}>
+        <MoreHorizontal size={13} strokeWidth={2} />
+      </ActionBtn>
+      {open && pos && (
+        <div
+          id="doc-action-menu"
+          style={{
+            position: 'fixed', top: pos.top, right: pos.right, zIndex: 9999,
+            background: '#fff', border: '1px solid #E2E8F0', borderRadius: '10px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.10)', minWidth: '190px', overflow: 'hidden',
+          }}
+        >
+          {doc.storage_path && (
+            <MenuItemRow icon={<Eye size={14} />} label="Visualiser" onClick={() => run(onView)} />
+          )}
+          {doc.storage_path && (
+            <MenuItemRow icon={<Download size={14} />} label="Télécharger" onClick={() => run(onDownload)} />
+          )}
+          <MenuItemRow icon={<Mail size={14} />} label="Envoyer un message" onClick={() => run(onMessages)} />
+          {onDelete && (
+            <>
+              <div style={{ borderTop: '1px solid #F1F5F9', margin: '2px 0' }} />
+              <MenuItemRow icon={<Trash2 size={14} />} label="Supprimer" onClick={() => run(onDelete)} danger />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MenuItemRow({ icon, label, onClick, danger }: {
+  icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors hover:bg-[#F8FAFC] ${danger ? 'text-[#DC2626]' : 'text-[#0F172A]'}`}
+    >
+      <span className={`shrink-0 ${danger ? 'text-[#DC2626]' : 'text-[#64748B]'}`}>{icon}</span>
+      {label}
+    </button>
+  )
+}
+
 export default function MesDocumentsPage() {
   const router      = useRouter()
   const currentYear = new Date().getFullYear()
 
   const [customerId, setCustomerId]   = useState<string | null>(null)
+  const [firmId, setFirmId]           = useState<string | null>(null)
   const [docTypes, setDocTypes]       = useState<DocTypeOpt[]>([])
   const [availableYears, setAvailableYears] = useState<number[]>([currentYear])
   const [editQual, setEditQual]       = useState<{ id: string; typeId: string; year: number; month: string } | null>(null)
@@ -103,6 +159,8 @@ export default function MesDocumentsPage() {
   const [docsLoading, setDocsLoading] = useState(false)
   const [acting, setActing]           = useState<string | null>(null)
   const [previewDoc, setPreviewDoc]   = useState<{ url: string; filename: string | null; mime: string | null } | null>(null)
+  const [messagesDoc, setMessagesDoc] = useState<DocRow | null>(null)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -110,15 +168,17 @@ export default function MesDocumentsPage() {
     async function init() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/login'); return }
+      setCurrentUserId(session.user.id)
 
       const { data: uc } = await supabase
         .from('user_customer').select('customer_id').eq('user_id', session.user.id).limit(1).single()
       if (!uc?.customer_id) { setInitLoading(false); return }
 
-      const { data: cust } = await supabase.from('customer').select('country_code').eq('id', uc.customer_id).single()
+      const { data: cust } = await supabase.from('customer').select('country_code, firm_id').eq('id', uc.customer_id).single()
+      if (cust?.firm_id) setFirmId(cust.firm_id)
 
       const [yearsRes, typesRes] = await Promise.all([
-        supabase.from('document').select('year').eq('customer_id', uc.customer_id),
+        supabase.from('document').select('year').eq('customer_id', uc.customer_id).limit(1000),
         cust
           ? supabase.from('document_type').select('id, name').eq('country_code', cust.country_code).eq('customer', true).eq('active', true).order('rank')
           : Promise.resolve({ data: [] }),
@@ -307,11 +367,11 @@ export default function MesDocumentsPage() {
         </div>
         <div className="flex items-center gap-2">
           <div className="flex border border-[#E2E8F0] rounded-lg overflow-hidden bg-white">
-            <button onClick={() => { setView('kanban'); setPage(0) }} className={`px-3 py-1.5 flex items-center gap-1.5 text-xs font-medium transition-colors ${view === 'kanban' ? 'bg-[#1D4ED8] text-white' : 'text-[#64748B] hover:bg-[#F8FAFC]'}`}>
-              <LayoutGrid size={13} /> Kanban
-            </button>
             <button onClick={() => { setView('list'); setPage(0) }} className={`px-3 py-1.5 flex items-center gap-1.5 text-xs font-medium transition-colors ${view === 'list' ? 'bg-[#1D4ED8] text-white' : 'text-[#64748B] hover:bg-[#F8FAFC]'}`}>
               <List size={13} /> Liste
+            </button>
+            <button onClick={() => { setView('kanban'); setPage(0) }} className={`px-3 py-1.5 flex items-center gap-1.5 text-xs font-medium transition-colors ${view === 'kanban' ? 'bg-[#1D4ED8] text-white' : 'text-[#64748B] hover:bg-[#F8FAFC]'}`}>
+              <LayoutGrid size={13} /> Kanban
             </button>
           </div>
         </div>
@@ -361,7 +421,7 @@ export default function MesDocumentsPage() {
         </div>
       ) : (
         <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
-          <style>{`.edit-cell-icon { opacity: 0.25; transition: opacity 0.15s; } .edit-cell-btn:hover .edit-cell-icon { opacity: 1; } .edit-cell-btn:hover { background: #F8FAFC !important; }`}</style>
+          <style>{`.edit-cell-icon { opacity: 0.6; transition: opacity 0.15s; } .edit-cell-btn:hover .edit-cell-icon { opacity: 1; } .edit-cell-btn:hover { background: #F8FAFC !important; }`}</style>
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-[#F8FAFC] border-b border-[#E2E8F0]">
@@ -406,7 +466,7 @@ export default function MesDocumentsPage() {
                             ? <span className="text-xs text-[#64748B]">{d.type.name}</span>
                             : <span style={{ fontSize: '11px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px', background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' }}>Non qualifié</span>
                           }
-                          <Pencil size={10} className="edit-cell-icon" style={{ color: '#CBD5E1', flexShrink: 0 }} />
+                          <Pencil size={10} className="edit-cell-icon" style={{ color: '#94A3B8', flexShrink: 0 }} />
                         </button>
                       )}
                     </td>
@@ -443,7 +503,7 @@ export default function MesDocumentsPage() {
                       ) : (
                         <button onClick={openEdit} className="edit-cell-btn" style={{ background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer', fontSize: '12px', color: '#64748B', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                           {formatPeriod(d.year, d.months)}
-                          <Pencil size={10} className="edit-cell-icon" style={{ color: '#CBD5E1', flexShrink: 0 }} />
+                          <Pencil size={10} className="edit-cell-icon" style={{ color: '#94A3B8', flexShrink: 0 }} />
                         </button>
                       )}
                     </td>
@@ -452,15 +512,14 @@ export default function MesDocumentsPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-[#94A3B8] whitespace-nowrap">{new Date(d.created_at).toLocaleDateString('fr-FR')}</td>
                     <td className="px-4 py-3">
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        {d.storage_path && <ActionBtn title="Visualiser" color="#1D4ED8" loading={busy} onClick={() => handleView(d)}><Eye size={11} strokeWidth={2} /></ActionBtn>}
-                        {d.storage_path && <ActionBtn title="Télécharger" color="#64748B" loading={busy} onClick={() => handleDownload(d)}><Download size={11} strokeWidth={2} /></ActionBtn>}
-                        {(d.status === 'pending' || d.status === 'draft') && (
-                          <ActionBtn title="Supprimer" color="#DC2626" loading={busy} onClick={() => setDeleteConfirm(d)}>
-                            <Trash2 size={11} strokeWidth={2} />
-                          </ActionBtn>
-                        )}
-                      </div>
+                      <DocActionMenu
+                        doc={d}
+                        busy={busy}
+                        onView={() => handleView(d)}
+                        onDownload={() => handleDownload(d)}
+                        onMessages={() => setMessagesDoc(d)}
+                        onDelete={(d.status === 'pending' || d.status === 'draft') ? () => setDeleteConfirm(d) : undefined}
+                      />
                     </td>
                   </tr>
                 )
@@ -497,6 +556,14 @@ export default function MesDocumentsPage() {
             </div>
           )}
         </div>
+      )}
+
+      {messagesDoc && currentUserId && firmId && (
+        <MessagesDrawer
+          doc={{ id: messagesDoc.id, filename: messagesDoc.filename, firm_id: firmId, customer_id: customerId ?? '' }}
+          currentUserId={currentUserId}
+          onClose={() => setMessagesDoc(null)}
+        />
       )}
     </div>
   )

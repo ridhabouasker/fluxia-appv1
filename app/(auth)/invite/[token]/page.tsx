@@ -42,12 +42,18 @@ export default function InvitePage() {
   const [error, setError]         = useState('')
 
   useEffect(() => {
-    supabase.rpc('get_invitation_by_token', { p_token: token })
-      .then(({ data }) => {
-        if (!data) { setInvalid(true) }
-        else { setInv(data as InvitationInfo) }
+    fetch('/api/invite/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    })
+      .then(r => r.json())
+      .then(json => {
+        if (!json.valid) { setInvalid(true) }
+        else { setInv(json.invitation as InvitationInfo) }
         setLoading(false)
       })
+      .catch(() => { setInvalid(true); setLoading(false) })
   }, [token])
 
   async function handleSubmit(e: React.FormEvent) {

@@ -29,7 +29,9 @@ type InviteRow = {
   id: string; email: string; status: string; expires_at: string; token: string
 }
 
-type Tab = 'informations' | 'utilisateurs'
+type Tab = 'informations' | 'utilisateurs' | 'collaborateurs'
+
+type CollabUser = { id: string; first_name: string; last_name: string }
 
 function Field({ label, value, readOnly, onChange }: {
   label: string; value: string; readOnly?: boolean; onChange?: (v: string) => void
@@ -87,7 +89,13 @@ export default function ClientDetailPage() {
   const [saving, setSaving]       = useState(false)
   const [saved, setSaved]         = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [toggling, setToggling]   = useState(false)
+  const [toggling, setToggling]         = useState(false)
+  const [togglingUserActive, setTogglingUserActive] = useState<string | null>(null)
+
+  // Accès collaborateurs
+  const [collabs, setCollabs]               = useState<CollabUser[]>([])
+  const [assignedCollabIds, setAssignedCollabIds] = useState<Set<string>>(new Set())
+  const [togglingCollab, setTogglingCollab] = useState<string | null>(null)
 
   const [inviteEmail, setInviteEmail]   = useState('')
   const [inviting, setInviting]         = useState(false)
@@ -108,11 +116,11 @@ export default function ClientDetailPage() {
       setFirmId(ud.firm_id)
       setIsAdmin(ud.admin ?? false)
 
-      const [{ data: cust }, { data: ucData }, { data: invData }] = await Promise.all([
+      const [{ data: cust }, { data: ucData }, { data: invData }, { data: firmUsers }] = await Promise.all([
         supabase.from('customer').select('*').eq('id', id).eq('firm_id', ud.firm_id).single(),
         supabase
           .from('user_customer')
-          .select('user_id, user_data(id, first_name, last_name, active, admin, created_at)')
+          .select('user_id, user_data(id, first_name, last_name, active, admin, role, created_at)')
           .eq('customer_id', id),
         supabase
           .from('user_invitation')
@@ -120,6 +128,14 @@ export default function ClientDetailPage() {
           .eq('customer_id', id)
           .eq('status', 'pending')
           .gt('expires_at', new Date().toISOString()),
+        supabase
+          .from('user_data')
+          .select('id, first_name, last_name')
+          .eq('firm_id', ud.firm_id)
+          .eq('role', 'firm')
+          .eq('admin', false)
+          .eq('active', true)
+          .order('first_name'),
       ])
 
       if (!cust) { router.push('/clients'); return }
@@ -144,13 +160,13 @@ export default function ClientDetailPage() {
       })
 
       if (ucData) {
-        const mapped = ucData
-          .map((r: { user_data: CustomerUser | CustomerUser[] | null }) =>
-            Array.isArray(r.user_data) ? r.user_data[0] : r.user_data
-          )
-          .filter(Boolean) as CustomerUser[]
-        setUsers(mapped)
+        type UcRow = { user_id: string; user_data: (CustomerUser & { role: string }) | (CustomerUser & { role: string })[] | null }
+        const allLinked = (ucData as UcRow[]).map(r => Array.isArray(r.user_data) ? r.user_data[0] : r.user_data).filter(Boolean) as (CustomerUser & { role: string })[]
+        setUsers(allLinked.filter(u => u.role === 'customer') as CustomerUser[])
+        setAssignedCollabIds(new Set(allLinked.filter(u => u.role === 'firm').map(u => u.id)))
       }
+
+      setCollabs((firmUsers ?? []) as CollabUser[])
 
       if (invData) setInvites(invData as InviteRow[])
       setLoading(false)
@@ -232,11 +248,32 @@ export default function ClientDetailPage() {
     if (!error) setUsers(prev => prev.map(u => u.id === userId ? { ...u, admin: !current } : u))
   }
 
+  async function handleToggleUserActive(userId: string, current: boolean) {
+    setTogglingUserActive(userId)
+    const { error } = await supabase.from('user_data').update({ active: !current }).eq('id', userId)
+    if (!error) setUsers(prev => prev.map(u => u.id === userId ? { ...u, active: !current } : u))
+    setTogglingUserActive(null)
+  }
+
   async function handleCancelInvite(invId: string) {
     setCancelling(invId)
     const { error } = await supabase.from('user_invitation').update({ status: 'revoked' }).eq('id', invId)
     if (!error) setInvites(prev => prev.filter(i => i.id !== invId))
     setCancelling(null)
+  }
+
+  async function handleToggleCollab(userId: string) {
+    if (!customer) return
+    setTogglingCollab(userId)
+    if (assignedCollabIds.has(userId)) {
+      const { error } = await supabase.from('user_customer').delete()
+        .eq('user_id', userId).eq('customer_id', customer.id)
+      if (!error) setAssignedCollabIds(prev => { const s = new Set(prev); s.delete(userId); return s })
+    } else {
+      const { error } = await supabase.from('user_customer').insert({ user_id: userId, customer_id: customer.id })
+      if (!error) setAssignedCollabIds(prev => new Set([...prev, userId]))
+    }
+    setTogglingCollab(null)
   }
 
   function set(key: keyof Customer) {
@@ -284,8 +321,12 @@ export default function ClientDetailPage() {
 
       {/* Tabs */}
       <div className="flex border-b border-[#E2E8F0] mb-6">
-        {(['informations', 'utilisateurs'] as Tab[]).map(t => {
-          const labels: Record<Tab, string> = { informations: 'Informations', utilisateurs: 'Utilisateurs' }
+        {(['informations', 'utilisateurs', 'collaborateurs'] as Tab[]).map(t => {
+          const labels: Record<Tab, string> = {
+            informations:  'Informations',
+            utilisateurs:  'Utilisateurs côté client',
+            collaborateurs: 'Accès collaborateurs',
+          }
           return (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
@@ -364,7 +405,63 @@ export default function ClientDetailPage() {
         </div>
       )}
 
-      {/* Utilisateurs */}
+      {/* Accès collaborateurs */}
+      {tab === 'collaborateurs' && (
+        <div className="bg-white border border-[#E2E8F0] rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-[#E2E8F0] bg-[#F8FAFC]">
+            <p className="text-sm font-semibold text-[#0F172A]">Collaborateurs ayant accès à ce dossier</p>
+            <p className="text-xs text-[#64748B] mt-1">Les admins ont accès à tous les dossiers par défaut et n'apparaissent pas ici.</p>
+          </div>
+          {collabs.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-[#94A3B8]">
+              Aucun collaborateur non-admin dans ce cabinet.
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[#E2E8F0]">
+                  <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">Collaborateur</th>
+                  <th className="px-5 py-3 text-left text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider w-24">Accès</th>
+                </tr>
+              </thead>
+              <tbody>
+                {collabs.map((c, i) => {
+                  const assigned = assignedCollabIds.has(c.id)
+                  const busy     = togglingCollab === c.id
+                  return (
+                    <tr key={c.id} className={`${i < collabs.length - 1 ? 'border-b border-[#E2E8F0]' : ''} transition-colors hover:bg-[#F8FAFC]`}>
+                      <td className="px-5 py-3 text-sm text-[#0F172A]">
+                        {c.first_name} {c.last_name}
+                      </td>
+                      <td className="px-5 py-3">
+                        <button
+                          onClick={() => handleToggleCollab(c.id)}
+                          disabled={busy || !isAdmin}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '6px', cursor: isAdmin && !busy ? 'pointer' : 'default',
+                            background: 'none', border: 'none', padding: 0, opacity: busy ? 0.5 : 1
+                          }}
+                        >
+                          <div style={{
+                            width: '18px', height: '18px', borderRadius: '4px', border: `2px solid ${assigned ? '#1D4ED8' : '#CBD5E1'}`,
+                            background: assigned ? '#1D4ED8' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            transition: 'all 0.15s', flexShrink: 0
+                          }}>
+                            {assigned && <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                          </div>
+                          <span className="text-xs text-[#64748B]">{assigned ? 'Accès accordé' : 'Pas d\'accès'}</span>
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Utilisateurs côté client */}
       {tab === 'utilisateurs' && (
         <div className="flex flex-col gap-6">
           {/* Users list */}
@@ -373,7 +470,7 @@ export default function ClientDetailPage() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
-                    {['Nom', 'Admin', 'Statut', 'Depuis'].map(h => (
+                    {['Nom', 'Admin', 'Statut', 'Depuis', ''].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
@@ -397,16 +494,30 @@ export default function ClientDetailPage() {
                         </button>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
                           u.active
-                            ? 'bg-[#F0FDF4] text-[#059669] border border-[#BBF7D0]'
-                            : 'bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]'
+                            ? 'bg-[#F0FDF4] text-[#059669] border-[#BBF7D0]'
+                            : 'bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]'
                         }`}>
                           {u.active ? 'Actif' : 'Inactif'}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-[#94A3B8]">
                         {new Date(u.created_at).toLocaleDateString('fr-FR')}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {isAdmin && (
+                          <button
+                            onClick={() => handleToggleUserActive(u.id, u.active)}
+                            disabled={togglingUserActive === u.id}
+                            className={`text-xs px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                              u.active
+                                ? 'border-[#FECACA] text-[#DC2626] hover:bg-[#FEF2F2]'
+                                : 'border-[#BBF7D0] text-[#059669] hover:bg-[#F0FDF4]'
+                            }`}>
+                            {togglingUserActive === u.id ? '…' : u.active ? 'Désactiver' : 'Réactiver'}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

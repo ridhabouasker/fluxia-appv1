@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabaseService'
 import { notifyDeposit } from '@/lib/email'
+import { validateMagicBytes } from '@/lib/file-validation'
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
     if (!isAllowedExt(f))       return NextResponse.json({ error: `Format non supporté : ${f.name}` }, { status: 400 })
     if (f.size > MAX_FILE_SIZE) return NextResponse.json({ error: `Fichier trop volumineux : ${f.name}` }, { status: 400 })
     if (f.size === 0)           return NextResponse.json({ error: `Fichier vide : ${f.name}` }, { status: 400 })
+    if (!await validateMagicBytes(f)) return NextResponse.json({ error: `Fichier corrompu ou type invalide : ${f.name}` }, { status: 400 })
     files.push(f)
   }
 
@@ -89,10 +91,15 @@ export async function POST(req: Request) {
 
   const { data: firm } = await service
     .from('firm')
-    .select('id, name')
+    .select('id, name, storage_quota_mb, storage_used_kb')
     .eq('id', customer.firm_id)
     .single()
   if (!firm) return NextResponse.json({ error: 'Cabinet introuvable' }, { status: 500 })
+
+  const totalSizeKb = files.reduce((sum, f) => sum + Math.round(f.size / 1024), 0)
+  if (firm.storage_used_kb + totalSizeKb > firm.storage_quota_mb * 1024) {
+    return NextResponse.json({ error: 'Quota de stockage dépassé. Contactez votre cabinet.' }, { status: 413 })
+  }
 
   // Build document type map (qualified only)
   const docTypeMap: Record<string, string> = {}
@@ -114,6 +121,7 @@ export async function POST(req: Request) {
   const currentYear = new Date().getFullYear()
   const bucket = firm.id
   const uploadedPaths: string[] = []
+  let currentUsedKb = firm.storage_used_kb
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i]
@@ -173,6 +181,10 @@ export async function POST(req: Request) {
         event_type:  'uploaded',
       })
     }
+
+    const fileSizeKb = Math.round(file.size / 1024)
+    currentUsedKb += fileSizeKb
+    await service.from('firm').update({ storage_used_kb: currentUsedKb }).eq('id', firm.id)
   }
 
   try {

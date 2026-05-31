@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
+import type { UserCustomerRow } from '@/lib/db-types'
 
 type CustomerData = {
   id: string
@@ -80,8 +81,9 @@ export default function MaSocietePage() {
   const [inviting, setInviting]         = useState(false)
   const [inviteSent, setInviteSent]     = useState(false)
   const [inviteError, setInviteError]   = useState('')
-  const [cancelling, setCancelling]     = useState<string | null>(null)
-  const [togglingAdmin, setTogglingAdmin] = useState<string | null>(null)
+  const [cancelling, setCancelling]         = useState<string | null>(null)
+  const [togglingAdmin, setTogglingAdmin]   = useState<string | null>(null)
+  const [togglingActive, setTogglingActive] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -107,7 +109,7 @@ export default function MaSocietePage() {
       }
 
       if (ucData) {
-        const rows = (ucData as unknown as { admin: boolean; created_at: string; user_data: { id: string; first_name: string; last_name: string; active: boolean } }[])
+        const rows = (ucData as unknown as UserCustomerRow[])
           .map(r => ({ ...r.user_data, admin: r.admin, created_at: r.created_at }))
           .filter(Boolean)
         setUsers(rows as UserRow[])
@@ -168,6 +170,18 @@ export default function MaSocietePage() {
     })
     if (res.ok) setUsers(prev => prev.map(u => u.id === userId ? { ...u, admin: !current } : u))
     setTogglingAdmin(null)
+  }
+
+  async function handleToggleUserActive(userId: string, current: boolean) {
+    setTogglingActive(userId)
+    const token = await getToken()
+    const res = await fetch(`/api/customer/users/${userId}`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: !current }),
+    })
+    if (res.ok) setUsers(prev => prev.map(u => u.id === userId ? { ...u, active: !current } : u))
+    setTogglingActive(null)
   }
 
   async function handleCancelInvite(id: string) {
@@ -252,13 +266,13 @@ export default function MaSocietePage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
-                  {['Nom', 'Admin', 'Statut', 'Depuis'].map(h => (
+                  {['Nom', 'Admin', 'Statut', 'Depuis', ''].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {users.length === 0 && <tr><td colSpan={4} className="px-4 py-10 text-center text-sm text-[#94A3B8]">Aucun utilisateur</td></tr>}
+                {users.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-sm text-[#94A3B8]">Aucun utilisateur</td></tr>}
                 {users.map((u, i) => (
                   <tr key={u.id} className={i < users.length - 1 ? 'border-b border-[#E2E8F0]' : ''}>
                     <td className="px-4 py-3 text-sm font-medium text-[#0F172A]">
@@ -279,12 +293,28 @@ export default function MaSocietePage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${u.active ? 'bg-[#F0FDF4] text-[#059669] border border-[#BBF7D0]' : 'bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]'}`}>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
+                        u.active ? 'bg-[#F0FDF4] text-[#059669] border-[#BBF7D0]' : 'bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]'
+                      }`}>
                         {u.active ? 'Actif' : 'Inactif'}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-[#94A3B8] whitespace-nowrap">
                       {new Date(u.created_at).toLocaleDateString('fr-FR')}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {isAdmin && u.id !== currentUserId && !u.admin && (
+                        <button
+                          onClick={() => handleToggleUserActive(u.id, u.active)}
+                          disabled={togglingActive === u.id}
+                          className={`text-xs px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                            u.active
+                              ? 'border-[#FECACA] text-[#DC2626] hover:bg-[#FEF2F2]'
+                              : 'border-[#BBF7D0] text-[#059669] hover:bg-[#F0FDF4]'
+                          }`}>
+                          {togglingActive === u.id ? '…' : u.active ? 'Désactiver' : 'Réactiver'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

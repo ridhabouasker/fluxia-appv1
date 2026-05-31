@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { ImageUp, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabaseClient'
 
 type FirmData = {
@@ -20,6 +21,8 @@ type FirmData = {
   city: string | null
   postal_code: string | null
   country_code: string
+  storage_quota_mb: number
+  storage_used_kb: number
 }
 
 type UserRow = {
@@ -114,8 +117,9 @@ export default function MonCabinetPage() {
   const [inviting, setInviting]         = useState(false)
   const [inviteSent, setInviteSent]     = useState(false)
   const [inviteError, setInviteError]   = useState('')
-  const [cancelling, setCancelling]     = useState<string | null>(null)
+  const [cancelling, setCancelling]       = useState<string | null>(null)
   const [togglingAdmin, setTogglingAdmin] = useState<string | null>(null)
+  const [togglingActive, setTogglingActive] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
@@ -272,6 +276,16 @@ export default function MonCabinetPage() {
     setTogglingAdmin(null)
   }
 
+  async function handleToggleUserActive(userId: string, current: boolean) {
+    setTogglingActive(userId)
+    const { error } = await supabase
+      .from('user_data')
+      .update({ active: !current })
+      .eq('id', userId)
+    if (!error) setUsers(prev => prev.map(u => u.id === userId ? { ...u, active: !current } : u))
+    setTogglingActive(null)
+  }
+
   async function handleCancel(id: string) {
     setCancelling(id)
     const { error } = await supabase
@@ -324,31 +338,36 @@ export default function MonCabinetPage() {
           {isAdmin && (
             <div className="bg-white border border-[#E2E8F0] rounded-xl p-6">
               <p className="text-sm font-semibold text-[#0F172A] mb-4">Logo du cabinet</p>
-              <div className="flex items-center gap-6">
+              <div className="flex flex-col items-start gap-2">
                 <div className="w-32 h-14 border border-[#E2E8F0] rounded-lg flex items-center justify-center bg-[#F8FAFC] shrink-0 overflow-hidden">
                   {logoUrl
                     ? <img src={logoUrl} alt="Logo" className="max-h-12 max-w-[120px] object-contain" />
                     : <span className="text-xs text-[#94A3B8]">Aucun logo</span>
                   }
                 </div>
-                <div className="flex flex-col gap-2">
-                  <label className="cursor-pointer">
-                    <span className="px-4 py-1.5 text-sm font-medium border border-[#E2E8F0] rounded-lg bg-white text-[#0F172A] hover:bg-[#F8FAFC] transition-colors inline-block">
-                      {logoUploading ? 'Envoi…' : logoUrl ? 'Changer le logo' : 'Ajouter un logo'}
-                    </span>
+                <div className="flex items-center gap-1.5">
+                  <label
+                    title={logoUrl ? 'Changer le logo' : 'Ajouter un logo'}
+                    className={`w-8 h-8 flex items-center justify-center border border-[#E2E8F0] rounded-lg bg-white text-[#64748B] hover:bg-[#F8FAFC] hover:text-[#0F172A] transition-colors ${logoUploading ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                    <ImageUp size={15} strokeWidth={1.75} />
                     <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden"
                       disabled={logoUploading}
                       onChange={e => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f) }} />
                   </label>
                   {logoUrl && (
-                    <button onClick={handleLogoDelete} disabled={logoUploading}
-                      className="text-xs text-[#DC2626] hover:underline text-left disabled:opacity-40">
-                      Supprimer le logo
+                    <button
+                      onClick={handleLogoDelete}
+                      disabled={logoUploading}
+                      title="Supprimer le logo"
+                      className="w-8 h-8 flex items-center justify-center border border-[#E2E8F0] rounded-lg bg-white text-[#64748B] hover:bg-[#FEF2F2] hover:text-[#DC2626] hover:border-[#FECACA] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Trash2 size={14} strokeWidth={1.75} />
                     </button>
                   )}
-                  {logoError && <span className="text-xs text-[#DC2626]">{logoError}</span>}
-                  <span className="text-xs text-[#94A3B8]">PNG, JPG, SVG, WEBP · max 2 Mo</span>
                 </div>
+                {logoError && <span className="text-xs text-[#DC2626]">{logoError}</span>}
+                <span className="text-xs text-[#94A3B8]">PNG, JPG, SVG, WEBP · max 2 Mo</span>
               </div>
             </div>
           )}
@@ -386,6 +405,28 @@ export default function MonCabinetPage() {
             />
           </Section>
 
+          {(() => {
+            const usedMb       = Math.round(firm.storage_used_kb / 1024)
+            const quotaGb      = Math.round(firm.storage_quota_mb / 1024)
+            const pct          = Math.min(100, Math.round((firm.storage_used_kb / (firm.storage_quota_mb * 1024)) * 100))
+            const fillColor    = pct > 90 ? '#DC2626' : pct >= 70 ? '#D97706' : '#059669'
+            return (
+              <div className="bg-white border border-[#E2E8F0] rounded-xl p-6">
+                <p className="text-sm font-semibold text-[#0F172A] mb-3">Stockage</p>
+                <p className="text-sm text-[#64748B] mb-2">{usedMb} Mo / {quotaGb} Go utilisés</p>
+                <div className="h-2 w-full rounded-full bg-[#E2E8F0] overflow-hidden">
+                  <div
+                    style={{ width: `${pct}%`, backgroundColor: fillColor }}
+                    className="h-full rounded-full transition-all"
+                  />
+                </div>
+                {pct > 90 && (
+                  <p className="mt-2 text-xs text-[#DC2626]">Quota de stockage presque atteint. Contactez le support pour augmenter votre limite.</p>
+                )}
+              </div>
+            )
+          })()}
+
           <div className="flex items-center gap-3">
             <button onClick={handleSave} disabled={saving}
               className="px-5 py-2 bg-[#1D4ED8] text-white text-sm font-medium rounded-lg hover:bg-[#1e40af] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -407,7 +448,7 @@ export default function MonCabinetPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[#E2E8F0] bg-[#F8FAFC]">
-                  {['Nom', 'Admin', 'Statut', 'Depuis'].map(h => (
+                  {['Nom', 'Admin', 'Statut', 'Depuis', ''].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
@@ -444,16 +485,30 @@ export default function MonCabinetPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
                         u.active
-                          ? 'bg-[#F0FDF4] text-[#059669] border border-[#BBF7D0]'
-                          : 'bg-[#FEF2F2] text-[#DC2626] border border-[#FECACA]'
+                          ? 'bg-[#F0FDF4] text-[#059669] border-[#BBF7D0]'
+                          : 'bg-[#FEF2F2] text-[#DC2626] border-[#FECACA]'
                       }`}>
                         {u.active ? 'Actif' : 'Inactif'}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-[#94A3B8] whitespace-nowrap">
                       {new Date(u.created_at).toLocaleDateString('fr-FR')}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {isAdmin && u.id !== currentUserId && !u.admin && (
+                        <button
+                          onClick={() => handleToggleUserActive(u.id, u.active)}
+                          disabled={togglingActive === u.id}
+                          className={`text-xs px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                            u.active
+                              ? 'border-[#FECACA] text-[#DC2626] hover:bg-[#FEF2F2]'
+                              : 'border-[#BBF7D0] text-[#059669] hover:bg-[#F0FDF4]'
+                          }`}>
+                          {togglingActive === u.id ? '…' : u.active ? 'Désactiver' : 'Réactiver'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

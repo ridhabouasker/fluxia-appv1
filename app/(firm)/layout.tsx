@@ -3,14 +3,16 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
-import Sidebar from '@/components/Sidebar'
-import Header from '@/components/Header'
+import Sidebar from '@/components/firm/Sidebar'
+import Header from '@/components/shared/Header'
 
 type UserInfo = {
   firmName: string
   countryCode: string
   userName: string
   logoUrl: string | null
+  avatarUrl: string | null
+  userInitials: string
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -32,7 +34,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       const { data, error } = await supabase
         .from('user_data')
-        .select('role, first_name, last_name, firm_id')
+        .select('role, first_name, last_name, firm_id, avatar_url, active')
         .eq('id', session.user.id)
         .single()
 
@@ -40,6 +42,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       if (error || !data) {
         router.push('/login')
+        return
+      }
+
+      if ((data as { active?: boolean }).active === false) {
+        await supabase.auth.signOut()
+        router.push('/login?suspended=1')
         return
       }
 
@@ -63,11 +71,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         logoUrl = (firm as { name: string; country_code: string; logo_url: string | null } | null)?.logo_url ?? null
       }
 
+      // URL signée de l'avatar (bucket privé, policy SELECT accordée à l'user)
+      let avatarUrl: string | null = null
+      const avatarPath = (data as { avatar_url?: string | null }).avatar_url
+      if (avatarPath) {
+        const { data: signed } = await supabase.storage.from('avatars').createSignedUrl(avatarPath, 3600)
+        avatarUrl = signed?.signedUrl ?? null
+      }
+
       if (!active) return
       setUserInfo({
         firmName,
         countryCode,
         logoUrl,
+        avatarUrl,
+        userInitials: `${data.first_name.charAt(0)}${data.last_name.charAt(0)}`.toUpperCase(),
         userName: `${data.first_name} ${data.last_name}`,
       })
     }
